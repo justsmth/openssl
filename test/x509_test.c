@@ -445,6 +445,101 @@ err:
     return ret;
 }
 
+/*
+ * TPM 1.2 Endorsement Key certificate with a NID_rsaesOaep
+ * SubjectPublicKeyInfo AlgorithmIdentifier (per TCG Credential
+ * Profiles V1.2 section 3.2.7).  The AlgorithmIdentifier carries
+ * a TCG-specific pSourceAlgorithm ("TCPA") in its parameters,
+ * which we deliberately do not interpret.  The key body itself
+ * is a standard RSAPublicKey.
+ */
+static const char *kRsaesOaepCert[] = {
+    "-----BEGIN CERTIFICATE-----\n",
+    "MIIEXjCCA0agAwIBAgIUBchBXcXPAWxNMJEsLXEXHv/eVZswDQYJKoZIhvcNAQEF\n",
+    "BQAwVTELMAkGA1UEBhMCQ0gxHjAcBgNVBAoTFVNUTWljcm9lbGVjdHJvbmljcyBO\n",
+    "VjEmMCQGA1UEAxMdU1RNIFRQTSBFSyBJbnRlcm1lZGlhdGUgQ0EgMDIwHhcNMjEw\n",
+    "OTA0MDAwMDAwWhcNMzEwOTA0MDAwMDAwWjAAMIIBNzAiBgkqhkiG9w0BAQcwFaIT\n",
+    "MBEGCSqGSIb3DQEBCQQEVENQQQOCAQ8AMIIBCgKCAQEAlZyGH0K5061jb9glk9FJ\n",
+    "eghjeAqca0hRKExVLOLkNeZZ3EX9IhA1afjlPtbeR/gIxt7tvUuNxqSeJLtsGgEL\n",
+    "u26bnxC2L92fO4hXHHyMbgIDqdcHvFGSIy+stdKL06sU1OXR7eUJ0qfWpYuYTGfm\n",
+    "Hl/kpTSa3qcVlVGhIVBHeebwBCQ2ttLGAsGUsn0YU5Snhe1LR15KzlIfYjj+/ZU3\n",
+    "/IYnqpJZLD9wv4Q0er0N8KBle0nhvH2JMYlAJ3HgiEpauTWe4CsBZO8DlpvONtq5\n",
+    "pvzPhAnSPRQZxPhH/VgzSEBGbYV6X5oHNSXDLqBq7y4Qe0dc05ffRS17RWC44WIq\n",
+    "dQIDAQABo4IBZDCCAWAwHwYDVR0jBBgwFoAUVx+Aa0fM55v6NZR87Yi40QBa4J4w\n",
+    "QgYDVR0gBDswOTA3BgRVHSAAMC8wLQYIKwYBBQUHAgEWIWh0dHA6Ly93d3cuc3Qu\n",
+    "Y29tL1RQTS9yZXBvc2l0b3J5LzBVBgNVHREBAf8ESzBJpEcwRTEWMBQGBWeBBQIB\n",
+    "DAtpZDo1MzU0NEQyMDEXMBUGBWeBBQICDAxTVDMzWlAyNFBWU0sxEjAQBgVngQUC\n",
+    "AwwHaWQ6MEQwQTB/BgNVHQkEeDB2MBYGBWeBBQIQMQ0wCwwDMS4yAgECAgF0MCAG\n",
+    "BWeBBQISMRcwFQIBAAEB/6ADCgEBoQMKAQCiAwoBADA6BgNVBTQxMzAkMCIGCSqG\n",
+    "SIb3DQEBBzAVohMwEQYJKoZIhvcNAQEJBARUQ1BBMAswCQYFKw4DAhoFADAMBgNV\n",
+    "HRMBAf8EAjAAMBMGA1UdJQEB/wQJMAcGBWeBBQgBMA0GCSqGSIb3DQEBBQUAA4IB\n",
+    "AQAQTkprC+kLKxILRgpYw9opbl9zZZJgrfR37Asho2CxVccmHE+EBCEbrZOcDVGD\n",
+    "BgLn8D8qi4tsNCfuHPISKDlcIshW7z24ixY56mScTwToRX+AomkJU/zAncdmtcij\n",
+    "UTsqkvi+rSYquIkfPLNNDMCV4oy0/VDgrzDxP18yCr9nct09jAC7N3wbqUn/4lQk\n",
+    "2Tq79zfsu5Px2BUWnWiEA9F9ThA0XVSll1CWii199BZECIY6VXkjYBHUT1ptb2Bt\n",
+    "53HR/+FcCwtEWG37GrrOHwJqqDYbW3ACPSZxFuMbUg1V/56pk/ZBY43ue7CGSVuC\n",
+    "HPAeERH+07hX5/7YXaH6MCnl\n",
+    "-----END CERTIFICATE-----\n",
+    NULL
+};
+
+/*
+ * Verify that a SubjectPublicKeyInfo with an id-RSAES-OAEP
+ * AlgorithmIdentifier decodes to an RSA EVP_PKEY via both the
+ * provider decoder path (exercised by X509_from_strings() +
+ * X509_get0_pubkey()) and the legacy type-specific path
+ * (exercised by d2i_RSA_PUBKEY() when available).
+ */
+static int test_rsaesoaep_spki(void)
+{
+    int ret = 0;
+    X509 *cert = NULL;
+    EVP_PKEY *pkey = NULL;
+#ifndef OPENSSL_NO_DEPRECATED_3_0
+    const X509_PUBKEY *xpk = NULL;
+    unsigned char *spki_der = NULL, *q;
+    const unsigned char *p;
+    int spki_len;
+    RSA *rsa = NULL;
+#endif
+
+    /* Provider / OSSL_DECODER path. */
+    if (!TEST_ptr(cert = X509_from_strings(kRsaesOaepCert))
+        || !TEST_ptr(pkey = X509_get0_pubkey(cert))
+        || !TEST_int_eq(EVP_PKEY_get_base_id(pkey), EVP_PKEY_RSA)
+        || !TEST_int_ge(EVP_PKEY_get_bits(pkey), 2048))
+        goto err;
+
+#ifndef OPENSSL_NO_DEPRECATED_3_0
+    /*
+     * Legacy path: d2i_RSA_PUBKEY() routes through
+     * ossl_d2i_PUBKEY_legacy() which sets flag_force_legacy=1,
+     * so this exercises the NID_rsaesOaep -> NID_rsaEncryption
+     * remap in x509_pubkey_decode().
+     */
+    if (!TEST_ptr(xpk = X509_get_X509_PUBKEY(cert))
+        || !TEST_int_gt((spki_len = i2d_X509_PUBKEY(xpk, NULL)), 0)
+        || !TEST_ptr(spki_der = OPENSSL_malloc(spki_len)))
+        goto err;
+    q = spki_der;
+    if (!TEST_int_eq(i2d_X509_PUBKEY(xpk, &q), spki_len))
+        goto err;
+    p = spki_der;
+    if (!TEST_ptr(rsa = d2i_RSA_PUBKEY(NULL, &p, spki_len))
+        || !TEST_int_ge(RSA_bits(rsa), 2048))
+        goto err;
+#endif
+
+    ret = 1;
+err:
+#ifndef OPENSSL_NO_DEPRECATED_3_0
+    RSA_free(rsa);
+    OPENSSL_free(spki_der);
+#endif
+    X509_free(cert);
+    return ret;
+}
+
 OPT_TEST_DECLARE_USAGE("<pss-self-signed-cert.pem>\n")
 
 int setup_tests(void)
@@ -484,6 +579,7 @@ int setup_tests(void)
     ADD_TEST(test_x509_revoked_delete_last_extension);
     ADD_TEST(test_drop_empty_cert_keyids);
     ADD_TEST(test_drop_empty_csr_keyids);
+    ADD_TEST(test_rsaesoaep_spki);
     return 1;
 }
 

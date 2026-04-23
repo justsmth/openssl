@@ -199,8 +199,19 @@ static int x509_pubkey_ex_d2i_ex(ASN1_VALUE **pval,
         }
         p = in_saved;
 
-        if (OBJ_obj2txt(txtoidname, sizeof(txtoidname),
-                pubkey->algor->algorithm, 0)
+        /*
+         * TPM 1.2 Endorsement Key certificates use NID_rsaesOaep in the
+         * SPKI AlgorithmIdentifier with a plain RSAPublicKey body, per
+         * TCG Credential Profiles V1.2 section 3.2.7.  Map the OID to
+         * "RSA" here so the provider decoder is selected; the OAEP
+         * AlgorithmIdentifier parameters are not interpreted.  Keep
+         * this in sync with x509_pubkey_decode() and
+         * ossl_spki2typespki_der_decode().
+         */
+        if (OBJ_obj2nid(pubkey->algor->algorithm) == NID_rsaesOaep) {
+            OPENSSL_strlcpy(txtoidname, "RSA", sizeof(txtoidname));
+        } else if (OBJ_obj2txt(txtoidname, sizeof(txtoidname),
+                       pubkey->algor->algorithm, 0)
             <= 0) {
             ERR_clear_last_mark();
             goto end;
@@ -409,6 +420,16 @@ static int x509_pubkey_decode(EVP_PKEY **ppkey, const X509_PUBKEY *key)
     nid = OBJ_obj2nid(key->algor->algorithm);
     if (!key->flag_force_legacy)
         return 0;
+
+    /*
+     * NID_rsaesOaep uses the same underlying RSAPublicKey body as
+     * NID_rsaEncryption (TCG Credential Profiles V1.2 section 3.2.7).
+     * Remap so EVP_PKEY_set_type() below finds the RSA ameth.  Keep
+     * this in sync with x509_pubkey_ex_d2i_ex() and
+     * ossl_spki2typespki_der_decode().
+     */
+    if (nid == NID_rsaesOaep)
+        nid = NID_rsaEncryption;
 
     pkey = EVP_PKEY_new();
     if (pkey == NULL) {
